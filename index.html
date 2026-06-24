@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>スイカゲーム風</title>
+
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;font-family:"Hiragino Maru Gothic ProN","Yu Gothic",sans-serif}
+body{background:url("a.png") center/cover no-repeat}
+
+.titleScreen{
+  position:fixed;inset:0;z-index:100;
+  background:url("a.png") center/cover no-repeat;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px
+}
+.logoText{
+  font-size:105px;font-weight:900;color:#ffc928;
+  -webkit-text-stroke:10px #4b1f12;
+  text-shadow:0 8px 0 rgba(80,40,0,.35);
+  paint-order:stroke fill
+}
+.menuBtn{
+  width:440px;height:84px;border:0;border-radius:999px;
+  font-size:34px;font-weight:900;color:white;
+  background:linear-gradient(#fff36a,#ffd400 55%,#e5b300);
+  box-shadow:0 14px 0 rgba(120,80,0,.45);
+  text-shadow:2px 2px 0 #8d7b55;
+  cursor:pointer
+}
+.grayBtn{color:#999;background:linear-gradient(#fff,#dfe5e5 55%,#bcc5c5)}
+
+.gameWrap{display:none;position:fixed;inset:0;justify-content:center;align-items:center}
+.gameArea{position:relative;width:420px;height:720px}
+canvas{position:absolute;inset:0}
+
+.scoreBox{position:absolute;left:calc(50% - 545px);top:58px;width:280px;height:230px;z-index:10}
+.scoreFrame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#scoreCanvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:230px;height:90px}
+
+.nextBox{position:absolute;right:calc(50% - 545px);top:58px;width:280px;height:230px;z-index:10}
+.nextFrame{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+#nextCanvas{position:absolute;left:50%;top:58%;transform:translate(-50%,-50%)}
+
+.ringBox{position:absolute;right:calc(50% - 610px);bottom:55px;width:370px;height:390px;z-index:10}
+.ringImg{width:100%;height:100%;object-fit:contain}
+
+.overlay{
+  display:none;
+  position:fixed;
+  inset:0;
+  z-index:999;
+  background:rgba(0,0,0,.68);
+  color:white;
+  text-align:center;
+  padding-top:70px;
+}
+.panel{
+  margin:auto;
+  width:min(90vw,560px);
+  background:rgba(255,220,120,.92);
+  border-radius:30px;
+  padding:28px;
+  color:#7b4a12;
+  text-shadow:none;
+  box-shadow:0 18px 0 rgba(90,55,0,.35);
+}
+.panel h1{font-size:44px;margin-bottom:18px}
+.panel h2{font-size:30px;margin:12px}
+.panel button{
+  margin:12px;
+  padding:12px 28px;
+  border:0;
+  border-radius:999px;
+  font-size:24px;
+  font-weight:900;
+  background:#ffd400;
+  color:white;
+  text-shadow:2px 2px 0 #8d7b55;
+  cursor:pointer;
+}
+.panel input{
+  font-size:28px;
+  padding:12px;
+  border-radius:16px;
+  border:4px solid #d49a24;
+  width:280px;
+}
+.rankingList{
+  margin:20px auto;
+  max-height:300px;
+  overflow:auto;
+  text-align:left;
+  font-size:24px;
+  line-height:1.7;
+  width:80%;
+}
+</style>
+</head>
+
+<body>
+
+<audio id="bgm" src="11.mp3" loop></audio>
+<audio id="dropSound" src="12.mp3"></audio>
+
+<div class="titleScreen" id="titleScreen">
+  <div class="logoText">スイカゲーム</div>
+  <button class="menuBtn" onclick="startGame()">ゲームスタート</button>
+  <button class="menuBtn grayBtn" onclick="openRanking()">マイスコア</button>
+  <button class="menuBtn grayBtn">遊び方</button>
+</div>
+
+<div class="gameWrap" id="gameWrap">
+  <div class="scoreBox">
+    <img class="scoreFrame" src="15.svg">
+    <canvas id="scoreCanvas" width="230" height="90"></canvas>
+  </div>
+
+  <div class="gameArea">
+    <canvas id="gameCanvas" width="420" height="720"></canvas>
+  </div>
+
+  <div class="nextBox">
+    <img class="nextFrame" src="16.svg">
+    <canvas id="nextCanvas" width="130" height="130"></canvas>
+  </div>
+
+  <div class="ringBox">
+    <img class="ringImg" src="17.svg">
+  </div>
+</div>
+
+<div id="rankingScreen" class="overlay">
+  <div class="panel">
+    <h1>ランキング</h1>
+    <h2>自分のベストスコア：<span id="myBest">0</span></h2>
+    <div id="onlineRanking" class="rankingList">読み込み中...</div>
+    <button onclick="closeRanking()">戻る</button>
+  </div>
+</div>
+
+<div id="gameOverScreen" class="overlay">
+  <div class="panel">
+    <h1>ゲームオーバー</h1>
+    <h2>スコア：<span id="finalScore">0</span></h2>
+    <button onclick="openRegister()">オンラインに登録</button>
+    <button onclick="location.reload()">タイトルへ</button>
+  </div>
+</div>
+
+<div id="registerScreen" class="overlay">
+  <div class="panel">
+    <h1>名前を入力</h1>
+    <input id="playerName" maxlength="12" placeholder="なまえ">
+    <br>
+    <button onclick="submitScore()">登録</button>
+    <button onclick="closeRegister()">戻る</button>
+  </div>
+</div>
+
+<script>
+const firebaseConfig={
+  apiKey:"AIzaSyCc_MqKpxTQwAdUOzW6T4wdLZeqlTHQ_6Q",
+  authDomain:"suika-ae8e8.firebaseapp.com",
+  projectId:"suika-ae8e8",
+  storageBucket:"suika-ae8e8.firebasestorage.app",
+  messagingSenderId:"878874211156",
+  appId:"1:878874211156:web:6d981212979e910d688ec1"
+};
+
+let db=null;
+try{
+  firebase.initializeApp(firebaseConfig);
+  db=firebase.firestore();
+}catch(e){
+  console.log("Firebase未設定");
+}
+
+const {Engine,World,Bodies,Runner,Events}=Matter;
+
+const W=420;
+const H=720;
+const FLOOR_Y=704;
+const NEXT_DELAY=400;
+const GAMEOVER_LINE=42;
+
+const canvas=document.getElementById("gameCanvas");
+const ctx=canvas.getContext("2d");
+const nextCanvas=document.getElementById("nextCanvas");
+const nctx=nextCanvas.getContext("2d");
+const scoreCanvas=document.getElementById("scoreCanvas");
+const sctx=scoreCanvas.getContext("2d");
+
+const boxImg=new Image();
+boxImg.src="b.png";
+
+const dropperImg=new Image();
+dropperImg.src="20.svg";
+
+const engine=Engine.create();
+engine.world.gravity.y=0.95;
+const world=engine.world;
+Runner.run(Runner.create(),engine);
+
+let started=false;
+let gameOver=false;
+let score=0;
+let bestScore=Number(localStorage.getItem("bestScore")||0);
+let fruits=[];
+let mouseX=W/2;
+let canDrop=true;
+let currentType=randomNext();
+let nextType=randomNext();
+let currentDropped=null;
+let nextTimerStarted=false;
+let mergingBodies=new Set();
+
+const digitImages=[];
+for(let i=0;i<=9;i++){
+  digitImages[i]=new Image();
+  digitImages[i].onload=()=>drawScore();
+  digitImages[i].src=`a${i}.png`;
+}
+
+const fruitData=[
+  null,
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/cherry.svg",r:15,draw:1.35,score:1},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/strawberry.svg",r:20,draw:1.28,score:2},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/grape.svg",r:28,draw:1.20,score:3},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/decopon.svg",r:36,draw:1.16,score:4},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/kaki.svg",r:46,draw:1.13,score:5},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/apple.svg",r:56,draw:1.11,score:6},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/nashi.svg",r:68,draw:1.09,score:7},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/peach.svg",r:80,draw:1.08,score:8},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/pine.svg",r:94,draw:1.06,score:9},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/melon.svg",r:106,draw:1.05,score:10},
+  {url:"https://suikagame.jp/wp/wp-content/themes/suikagame.jp/assets/images/common/fruits/suika.svg",r:122,draw:1.04,score:11}
+];
+
+for(let i=1;i<=11;i++){
+  fruitData[i].image=new Image();
+  fruitData[i].image.onload=drawNext;
+  fruitData[i].image.src=fruitData[i].url;
+}
+
+World.add(world,[
+  Bodies.rectangle(-8,H/2,16,H,{isStatic:true,label:"wall"}),
+  Bodies.rectangle(W+8,H/2,16,H,{isStatic:true,label:"wall"}),
+  Bodies.rectangle(W/2,FLOOR_Y+8,W,16,{isStatic:true,label:"floor"})
+]);
+
+function randomNext(){return Math.floor(Math.random()*5)+1}
+
+function playBgm(){
+  const bgm=document.getElementById("bgm");
+  bgm.volume=0.5;
+  bgm.play().catch(()=>{});
+}
+document.addEventListener("click",playBgm,{once:true});
+document.addEventListener("touchstart",playBgm,{once:true});
+
+function startGame(){
+  document.getElementById("titleScreen").style.display="none";
+  document.getElementById("gameWrap").style.display="flex";
+  started=true;
+  playBgm();
+  drawNext();
+  drawScore();
+}
+
+function playDropSound(){
+  const s=document.getElementById("dropSound");
+  s.currentTime=0;
+  s.volume=0.75;
+  s.play().catch(()=>{});
+}
+
+function playMergeSound(){
+  const s=new Audio("10.mp3");
+  s.volume=0.8;
+  s.play().catch(()=>{});
+}
+
+function addScore(v){
+  score+=v;
+  if(score>bestScore){
+    bestScore=score;
+    localStorage.setItem("bestScore",bestScore);
+  }
+  drawScore();
+}
+
+function makeFruitBody(x,y,type){
+  const d=fruitData[type];
+  const body=Bodies.circle(x,y,d.r,{
+    restitution:0.05,
+    friction:0.55,
+    frictionAir:0.004,
+    density:0.0012+type*0.00025,
+    label:"fruit"
+  });
+  body.fruitType=type;
+  body.isRemoved=false;
+  body.spawnedAt=Date.now();
+  return body;
+}
+
+function createFruit(x,type){
+  const body=makeFruitBody(x,70,type);
+  World.add(world,body);
+  fruits.push(body);
+  currentDropped=body;
+  nextTimerStarted=false;
+  playDropSound();
+
+  setTimeout(()=>{
+    if(!canDrop && currentDropped===body){
+      advanceNext();
+    }
+  },1400);
+
+  return body;
+}
+
+function advanceNext(){
+  if(gameOver)return;
+  currentDropped=null;
+  currentType=nextType;
+  nextType=randomNext();
+  drawNext();
+  canDrop=true;
+  nextTimerStarted=false;
+}
+
+function dropFruit(){
+  if(!started||!canDrop||gameOver)return;
+  const d=fruitData[currentType];
+  const x=Math.max(d.r+8,Math.min(W-d.r-8,mouseX));
+  createFruit(x,currentType);
+  canDrop=false;
+}
+
+function startNextFruitTimer(){
+  if(nextTimerStarted)return;
+  nextTimerStarted=true;
+  const target=currentDropped;
+  setTimeout(()=>{
+    if(currentDropped===target){
+      advanceNext();
+    }
+  },NEXT_DELAY);
+}
+
+function currentDroppedTouching(){
+  if(!currentDropped||currentDropped.isRemoved)return false;
+  const d=fruitData[currentDropped.fruitType];
+
+  if(currentDropped.position.y+d.r>=FLOOR_Y-1)return true;
+
+  for(const f of fruits){
+    if(f===currentDropped||f.isRemoved)continue;
+    const fd=fruitData[f.fruitType];
+    const dx=f.position.x-currentDropped.position.x;
+    const dy=f.position.y-currentDropped.position.y;
+    const dist=Math.hypot(dx,dy);
+    if(dist<=d.r+fd.r+2)return true;
+  }
+  return false;
+}
+
+Events.on(engine,"collisionStart",event=>{
+  if(gameOver)return;
+
+  for(const pair of event.pairs){
+    const a=pair.bodyA;
+    const b=pair.bodyB;
+
+    if(currentDropped&&(a===currentDropped||b===currentDropped)){
+      const other=a===currentDropped?b:a;
+      if(other.label==="fruit"||other.label==="floor"){
+        startNextFruitTimer();
+      }
+    }
+
+    if(a.label==="fruit"&&b.label==="fruit"){
+      tryMerge(a,b);
+    }
+  }
+});
+
+Events.on(engine,"afterUpdate",()=>{
+  if(!started||gameOver)return;
+
+  if(currentDroppedTouching())startNextFruitTimer();
+  checkChainMerges();
+  checkGameOver();
+});
+
+function tryMerge(a,b){
+  if(!a||!b)return;
+  if(a.isRemoved||b.isRemoved)return;
+  if(a.fruitType!==b.fruitType)return;
+  if(mergingBodies.has(a)||mergingBodies.has(b))return;
+
+  if(a.fruitType===11){
+    mergingBodies.add(a);
+    mergingBodies.add(b);
+    a.isRemoved=true;
+    b.isRemoved=true;
+
+    if(currentDropped===a||currentDropped===b)advanceNext();
+
+    World.remove(world,a);
+    World.remove(world,b);
+    fruits=fruits.filter(f=>f!==a&&f!==b);
+
+    addScore(200);
+    playMergeSound();
+
+    setTimeout(()=>{
+      mergingBodies.delete(a);
+      mergingBodies.delete(b);
+    },0);
+    return;
+  }
+
+  mergingBodies.add(a);
+  mergingBodies.add(b);
+
+  const nx=(a.position.x+b.position.x)/2;
+  const ny=(a.position.y+b.position.y)/2;
+  const newType=a.fruitType+1;
+
+  a.isRemoved=true;
+  b.isRemoved=true;
+
+  if(currentDropped===a||currentDropped===b)advanceNext();
+
+  World.remove(world,a);
+  World.remove(world,b);
+  fruits=fruits.filter(f=>f!==a&&f!==b);
+
+  const merged=makeFruitBody(nx,ny,newType);
+  World.add(world,merged);
+  fruits.push(merged);
+
+  addScore(fruitData[newType].score*10);
+  playMergeSound();
+
+  setTimeout(()=>{
+    mergingBodies.delete(a);
+    mergingBodies.delete(b);
+    checkChainMerges();
+  },0);
+}
+
+function checkChainMerges(){
+  for(let i=0;i<fruits.length;i++){
+    const a=fruits[i];
+    if(!a||a.isRemoved||mergingBodies.has(a))continue;
+
+    for(let j=i+1;j<fruits.length;j++){
+      const b=fruits[j];
+      if(!b||b.isRemoved||mergingBodies.has(b))continue;
+      if(a.fruitType!==b.fruitType)continue;
+
+      const dx=a.position.x-b.position.x;
+      const dy=a.position.y-b.position.y;
+      const dist=Math.hypot(dx,dy);
+      const need=fruitData[a.fruitType].r+fruitData[b.fruitType].r+3;
+
+      if(dist<=need){
+        tryMerge(a,b);
+        return;
+      }
+    }
+  }
+}
+
+function checkGameOver(){
+  for(const f of fruits){
+    if(!f||f.isRemoved)continue;
+    if(Date.now()-f.spawnedAt<2500)continue;
+
+    const d=fruitData[f.fruitType];
+    if(f.position.y-d.r<GAMEOVER_LINE){
+      showGameOver();
+      return;
+    }
+  }
+}
+
+function showGameOver(){
+  if(gameOver)return;
+  gameOver=true;
+  canDrop=false;
+  document.getElementById("finalScore").textContent=score;
+  document.getElementById("gameOverScreen").style.display="block";
+}
+
+canvas.addEventListener("mousemove",e=>{
+  const rect=canvas.getBoundingClientRect();
+  mouseX=e.clientX-rect.left;
+});
+
+canvas.addEventListener("touchmove",e=>{
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  mouseX=e.touches[0].clientX-rect.left;
+},{passive:false});
+
+canvas.addEventListener("click",dropFruit);
+
+canvas.addEventListener("touchend",e=>{
+  e.preventDefault();
+  dropFruit();
+},{passive:false});
+
+document.addEventListener("keydown",e=>{
+  if(e.key==="ArrowLeft")mouseX-=22;
+  if(e.key==="ArrowRight")mouseX+=22;
+  if(e.key===" "||e.key==="Enter")dropFruit();
+  mouseX=Math.max(20,Math.min(W-20,mouseX));
+});
+
+function drawImageNatural(context,img,x,y,maxSize,angle=0){
+  if(!img.complete||img.naturalWidth===0)return;
+  const scale=maxSize/Math.max(img.naturalWidth,img.naturalHeight);
+  const w=img.naturalWidth*scale;
+  const h=img.naturalHeight*scale;
+  context.save();
+  context.translate(x,y);
+  context.rotate(angle);
+  context.drawImage(img,-w/2,-h/2,w,h);
+  context.restore();
+}
+
+function drawFruit(body){
+  const d=fruitData[body.fruitType];
+  drawImageNatural(ctx,d.image,body.position.x,body.position.y,d.r*2*d.draw,body.angle);
+}
+
+function drawDropper(x){
+  const cloudX=Math.max(56,Math.min(W-56,x+48));
+  drawImageNatural(ctx,dropperImg,cloudX,38,112,0);
+}
+
+function drawNext(){
+  nctx.clearRect(0,0,130,130);
+  const d=fruitData[nextType];
+  drawImageNatural(nctx,d.image,65,65,90,0);
+}
+
+function drawScore(){
+  sctx.clearRect(0,0,scoreCanvas.width,scoreCanvas.height);
+
+  const text=String(score);
+  const digitH=54;
+  const gap=2;
+  const nums=[];
+  let total=0;
+
+  for(const ch of text){
+    const n=Number(ch);
+    const img=digitImages[n];
+    let w=32;
+
+    if(img&&img.complete&&img.naturalWidth>0){
+      const scale=digitH/img.naturalHeight;
+      w=img.naturalWidth*scale;
+    }
+
+    nums.push({ch,img,w});
+    total+=w+gap;
+  }
+
+  total-=gap;
+
+  let x=(scoreCanvas.width-total)/2;
+  const y=(scoreCanvas.height-digitH)/2;
+
+  for(const item of nums){
+    if(item.img&&item.img.complete&&item.img.naturalWidth>0){
+      sctx.drawImage(item.img,x,y,item.w,digitH);
+    }else{
+      sctx.fillStyle="white";
+      sctx.font="900 54px Yu Gothic";
+      sctx.textAlign="center";
+      sctx.textBaseline="middle";
+      sctx.fillText(item.ch,x+item.w/2,scoreCanvas.height/2);
+    }
+    x+=item.w+gap;
+  }
+}
+
+function drawBox(){
+  ctx.clearRect(0,0,W,H);
+  if(boxImg.complete&&boxImg.naturalWidth>0){
+    ctx.drawImage(boxImg,0,0,W,H);
+  }else{
+    ctx.fillStyle="rgba(255,240,190,.55)";
+    ctx.fillRect(0,0,W,H);
+  }
+}
+
+function drawGuide(){
+  const d=fruitData[currentType];
+  const fruitX=Math.max(d.r+8,Math.min(W-d.r-8,mouseX));
+
+  ctx.strokeStyle="rgba(255,255,255,.95)";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.moveTo(fruitX,0);
+  ctx.lineTo(fruitX,FLOOR_Y);
+  ctx.stroke();
+
+  drawDropper(fruitX);
+
+  if(canDrop&&!gameOver){
+    drawImageNatural(ctx,d.image,fruitX,70,d.r*2*d.draw,0);
+  }
+}
+
+function gameLoop(){
+  if(started){
+    drawBox();
+    drawGuide();
+    for(const f of fruits){
+      if(!f.isRemoved)drawFruit(f);
+    }
+  }
+  requestAnimationFrame(gameLoop);
+}
+
+async function openRanking(){
+  document.getElementById("rankingScreen").style.display="block";
+  document.getElementById("myBest").textContent=bestScore;
+
+  const box=document.getElementById("onlineRanking");
+  box.innerHTML="読み込み中...";
+
+  if(!db){
+    box.innerHTML="Firebase設定がまだです";
+    return;
+  }
+
+  try{
+    const snap=await db.collection("suikaRanking")
+      .orderBy("score","desc")
+      .limit(10)
+      .get();
+
+    let html="<ol>";
+    snap.forEach(doc=>{
+      const d=doc.data();
+      html+=`<li>${escapeHtml(d.name||"名無し")}：${d.score||0}</li>`;
+    });
+    html+="</ol>";
+
+    box.innerHTML=html;
+  }catch(e){
+    box.innerHTML="ランキングを読み込めませんでした";
+  }
+}
+
+function closeRanking(){
+  document.getElementById("rankingScreen").style.display="none";
+}
+
+function openRegister(){
+  document.getElementById("registerScreen").style.display="block";
+}
+
+function closeRegister(){
+  document.getElementById("registerScreen").style.display="none";
+}
+
+async function submitScore(){
+  const name=document.getElementById("playerName").value.trim()||"名無し";
+
+  if(!db){
+    alert("Firebase設定がまだです");
+    return;
+  }
+
+  try{
+    await db.collection("suikaRanking").add({
+      name:name,
+      score:score,
+      createdAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
+
+    alert("登録した！");
+    document.getElementById("registerScreen").style.display="none";
+  }catch(e){
+    alert("登録できませんでした");
+  }
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g,s=>{
+    return {
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    }[s];
+  });
+}
+
+drawScore();
+drawNext();
+gameLoop();
+</script>
+</body>
+</html>
